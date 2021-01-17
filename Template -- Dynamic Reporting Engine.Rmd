@@ -1,0 +1,339 @@
+---
+title: "Mobile Phones"
+output: flexdashboard::flex_dashboard
+runtime: shiny
+---
+
+
+```{r setup, include=FALSE}
+
+#install.packages("flexdashboard")
+library(flexdashboard)
+library(shiny)
+library(rmarkdown)
+library(knitr)
+library(Hmisc)
+library(DT)
+library(data.table)
+assignInNamespace("cedta.override", c(data.table:::cedta.override,"rmarkdown"), "data.table")
+opts_chunk$set(echo = FALSE, comment="", warning = FALSE, message = FALSE, tidy.opts=list(width.cutoff=55), tidy = TRUE)
+
+```
+
+```{r source_functions}
+source("Constants.R")
+source("Functions.R")
+```
+
+
+```{r constants}
+# Most constants have been placed in the file constants.R to unify the work across reporting and applications.
+
+# Additional constants that are unique to this reporting engine can be added here.
+
+
+
+```
+
+
+```{r functions}
+# Most functions have been placed in the file functions.R to unify the work across reporting and applications.
+percentage.table =function(x, digits = 1){
+  tab = table(x)
+  percentage.tab = 100*tab/(sum(tab))
+  rounded.tab = round(x = percentage.tab, digits = digits)
+  return(rounded.tab)
+}
+# Additional functions that are unique to this reporting engine can be added here.
+```
+
+```{r read_data}
+dat = fread("/Users/Chrystalla/Documents/University/Columbia/Semester 3/Data Science Consulting/Individual Project 3/Final Deliverables/mobile phone survey data.csv", verbose = F)
+
+breaks = c(18,35,50,65,400)
+labels = c("18-34", "35-49", "50-64", "65+")
+
+dat[, AgeGroups := cut(Age, breaks = breaks, right = FALSE, labels = labels),]
+
+breaks1 = c(0,50000,75000,100000,150000,1000000000)
+labels1 = c("under 50K", "50K-75K", "75K-100K","100K-150K", "150K+")
+
+dat[, IncomeGroup := cut(Income, breaks = breaks1, right = FALSE, labels = labels1),]
+
+brand.traits <- names(dat)[grep(pattern = brand.pattern, x = names(dat))]
+
+names.products <- dat[, unique(Product)]
+inputs.name = c(respondent.variables, brand.traits)
+
+```
+
+``` {r variables}
+unique.age.groups <- dat[, sort(unique(AgeGroup))]
+unique.genders <- dat[, sort(unique(Gender))]
+unique.income.groups <- dat[, sort(unique(IncomeGroup))]
+unique.regions <- dat[, sort(unique(Region))]
+unique.personas <- dat[, sort(unique(Persona))]
+
+unique.products <- dat[, unique(Product)]
+colstoavg <- names(dat)[9:20]
+
+
+```
+
+
+Introduction
+=====================================  
+
+This dashbaord analyzes data from a large communications company based on a marketing survey of its products' awareness and consumer perceptions. 
+
+The survey was answered by `r dat[,length(unique(id))]` respondents, about `r dat[,length(unique(Product))]` different products. Navigate through the menubar tabs to see the reports. 
+
+Respondents (Q1)
+===================================
+
+
+Row {data-height=500}
+-------------------------------------
+
+```{r q1_input}
+
+inputPanel(selectInput(inputId = "respondent_variable", 
+    label = "Select Variable:", choices = respondent.variables, 
+    selected = respondent.variables[1]), checkboxInput(inputId = "respondent_show_percentages", 
+    label = "Show Percentages", value = TRUE))
+
+```
+
+
+```{r q1_output}
+
+renderPlot({
+  tab <- percentage.table(x = dat[Product == Product[1], get(input$respondent_variable)])
+  barplot(height = tab, space=0.01, las = 1, main = input$respondent_variable, ylab = "Percentage", xlab = input$respondent_variable, ylim = c(0, 1.2*max(tab, na.rm = TRUE)), col = rainbow(20), cex.names = 0.8 )
+  
+  if(input$respondent_show_percentages == TRUE){
+    space_val = 0
+    text(x = -0.4 + 1:length(tab) * (1+space_val), y = tab, labels = sprintf("%.1f%%", tab), pos = 3)
+  }
+})
+
+
+
+```
+
+Products (Q2)
+=====================================  
+
+
+Row {data-height=500}
+-------------------------------------
+
+```{r q2_input}
+
+inputPanel(selectInput(inputId = "engagement_state", label = "Select state of Engagement:", choices = engagement.state, selected = engagement.state[1]),
+           selectInput(inputId = "e_age", label = "Select Age Group:", choices = Levels.AgeGroup, selected = Levels.AgeGroup[1], multiple = TRUE),
+          selectInput(inputId = "e_gender", label = "Select Gender:", choices = Levels.Gender, selected = Levels.Gender[1], multiple = TRUE),
+          selectInput(inputId = "e_incomegroup", label = "Select Income Group:", choices = Levels.IncomeGroup, selected = Levels.IncomeGroup[1], multiple = TRUE),
+          selectInput(inputId = "e_region", label = "Select Region:", choices = Levels.Region, selected = Levels.Region[1], multiple = TRUE),
+          selectInput(inputId = "e_persona", label = "Select Persona:", choices = Levels.Persona, selected = Levels.Persona[1], multiple = TRUE),
+          numericInput(inputId = "number_products", label = "Select number of products:", min = 1, max = 20, value = 1, step = 1),
+          checkboxInput(inputId = "seg_show_percentages", label = "Show Percentages", value = TRUE)
+           )
+
+
+
+           #checkboxGroupInput(inputId = "sub_variable", label = "Select categories:", choices = category.variables, selected = category.variables[1]),
+           #checkboxInput(inputId = "sorting_variables", label = "Sorted", value=TRUE),
+
+
+```
+
+
+```{r q2_output}
+renderPlot({
+  
+  subdat = dat[get(AgeGroup) %in% input$e_age & Gender %in% input$e_gender & IncomeGroup %in% input$e_incomegroup & Region %in% input$e_region &
+                 Persona %in% input$e_persona]
+  tab = subdat[, .(Rate = 100*mean(get(input$engagement_state), na.rm = TRUE)/max(get(input$engagement_state), na.rm = TRUE)) , by = Product]
+
+  setorderv(x = tab, cols = "Rate", order = -1)
+  tab = tab[1:input$number_products,]
+barplot(height = tab[, Rate], space = 0.01, las = 1, main = input$engagement_state, ylab = sprintf("Rate of %s", input$engagement_state), names.arg = tab[,Product], ylim = c(0, 120), xlab = "Products", axes = F, col = rainbow(20))
+axis(side = 2, at = 20*(0:5), las = 2)
+if(input$seg_show_percentages == TRUE){
+    space_val = 0
+    text(x = -0.5 + 1:length(tab) * (1+space_val), y = tab[, Rate], labels = sprintf("%.1f%%", tab[,Rate]), pos = 3)
+  }
+})
+
+
+
+
+```
+
+
+Brand Perceptions (Q3)
+=====================================  
+
+Row {data-height=500}
+-------------------------------------
+
+```{r q3_input}
+
+inputPanel(
+  selectInput(inputId = "e_age1", label = "Select Age Group:", choices = Levels.AgeGroup, selected = Levels.AgeGroup[1], multiple = TRUE),
+  selectInput(inputId = "e_gender1", label = "Select Gender:", choices = Levels.Gender, selected = Levels.Gender[1], multiple = TRUE),
+  selectInput(inputId = "e_incomegroup1", label = "Select Income Group:", choices = Levels.IncomeGroup, selected = Levels.IncomeGroup[1], multiple = TRUE),
+  selectInput(inputId = "e_region1", label = "Select Region:", choices = Levels.Region, selected = Levels.Region[1], multiple = TRUE),
+  selectInput(inputId = "e_persona1", label = "Select Persona:", choices = Levels.Persona, selected = Levels.Persona[1], multiple = TRUE),
+   numericInput(inputId = "number_products1", label = "Select number of products:", min = 1, max = 20, value = 1, step = 1),
+  checkboxInput(inputId = "brand_show_percentages", label = "Show Percentages", value = TRUE)
+)
+
+```
+
+
+
+```{r q3_output}
+renderPlot({
+  
+  
+  subdat = dat[get(AgeGroup) %in% input$e_age1 & Gender %in% input$e_gender1 & IncomeGroup %in% input$e_incomegroup1 & Region %in% input$e_region1 &
+                 Persona %in% input$e_persona1]
+    avg.perception = subdat[,lapply(x = .SD, FUN = "mean", na.rm = TRUE), .SDcols = brand.traits, by = Product]
+
+  avg.perception$BP_Boring_0_10 = 10 - avg.perception$BP_Boring_0_10
+  avg.perception$BP_Bulky_0_10 = 10 - avg.perception$BP_Bulky_0_10
+  avg.perception$BP_Fragile_0_10 = 10 - avg.perception$BP_Fragile_0_10
+  avg.perception$BP_Expensive_0_10 = 10 - avg.perception$BP_Expensive_0_10
+  
+
+avg.perception[, "Average_Perception" := lapply(.SD,mean,na.rm=TRUE),by=Product, .SDcols=brand.traits]
+
+setorderv(x = avg.perception, cols = 'Average_Perception' , order = -1)
+avg.perception = avg.perception[1:input$number_products1,]
+
+
+barplot(height = avg.perception[, Average_Perception], space = 0.01, las = 1, main = "Average Brand Perception", ylim = c(0, 1.2* max(avg.perception[, Average_Perception], na.rm = TRUE)), ylab = "Average Perception", names.arg = avg.perception[, Product], xlab = "Products", axes = F, col = rainbow(20))
+axis(side = 2, las = 2)
+
+  if(input$brand_show_percentages == TRUE){
+    space_val = 0
+    text(x = -0.5 + 1:avg.perception[, Average_Perception] * (1+space_val), y = avg.perception[, Average_Perception], labels = sprintf("%.1f%%", avg.perception[, Average_Perception]), pos = 3)
+  }
+})
+
+
+
+```
+
+
+Gaps in Outcomes (Q4)
+=====================================  
+
+Row {data-height=500}
+-------------------------------------
+
+```{r q4_input}
+
+inputPanel(
+  selectInput(inputId = "first_outcome_var", label = "Select first variable:", choices = engagement.state, selected = engagement.state[1]),
+  selectInput(inputId = "second_outcome_var", label = "Select second variable:", choices = engagement.state, selected = engagement.state[2]),
+  numericInput(inputId = "number_products3", label = "Select number of products:", min = 1, max = 20, value = 8, step = 1),
+  sliderInput(inputId = "slider.digits", label = "Digits", min = 1, max = 3, value = 1, step = 1),
+  checkboxInput(inputId = "gap_show_percentages", label = "Show Percentages", value = TRUE)
+  
+  
+)
+
+```
+
+
+
+```{r q4_output}
+
+renderPlot({
+  
+Differences = dat[, .(avg1 = mean(get(input$first_outcome_var), na.rm = TRUE), avg2 = mean(get(input$second_outcome_var), na.rm = TRUE)),by = Product]
+Differences[, Difference := (100*(avg1 - avg2))]
+
+setorderv(x = Differences, cols = "Difference", order = -1)
+
+Differences = Differences[1:input$number_products3,]
+Differences = Differences[, lapply(X = .SD, FUN= "round.numerics", digits = input$slider.digits)]
+
+
+
+barplot(height = Differences[,Difference], space = 0.02,  las=1, col=rainbow(20), names.arg = Differences[, Product], cex.names=.7, ylab = "Difference", main = "Engagement Differences", xlab = "Product", ylim = c(0, 1.2* max(Differences[, Difference], na.rm = TRUE)))
+  
+axis(side = 2, las = 2)
+
+
+  if(input$gap_show_percentages == TRUE){
+    space_val = 0
+    text(x = -0.4 + 1:Differences[,.N] * (1+space_val), y = Differences[, Difference], labels = sprintf("%.1f%%", Differences[, Difference]), pos = 3)
+
+}
+  
+
+})
+
+
+
+```
+
+Models (Q5)
+=====================================  
+
+Row {data-height=500}
+-------------------------------------
+
+
+```{r q5_input}
+
+inputPanel(selectInput(inputId = "engagement_state", label = "Select State of Engagement:", choices = engagement.state, selected = engagement.state[1]),
+           selectInput(inputId = "unique.products", label = "Product", choices = names.products, selected = names.products[1], multiple = TRUE),
+           selectInput(inputId = "input_vars", label = "Select Variables", choices = inputs.name, selected = inputs.name, multiple = TRUE),
+           selectInput(inputId = "e_age2", label = "Select Age Group:", choices = Levels.AgeGroup, selected = Levels.AgeGroup[1], multiple = TRUE),
+  selectInput(inputId = "e_gender2", label = "Select Gender:", choices = Levels.Gender, selected = Levels.Gender[1], multiple = TRUE),
+  selectInput(inputId = "e_incomegroup2", label = "Select Income Group:", choices = Levels.IncomeGroup, selected = Levels.IncomeGroup[1], multiple = TRUE),
+  selectInput(inputId = "e_region2", label = "Select Region:", choices = Levels.Region, selected = Levels.Region[1], multiple = TRUE),
+  selectInput(inputId = "e_persona2", label = "Select Persona:", choices = Levels.Persona, selected = Levels.Persona[1], multiple = TRUE)
+           
+           
+)
+
+
+engagement_state = engagement.state[1]
+
+```
+
+
+```{r q5_output}
+
+
+renderDataTable({
+  reg_model = dat[Product %in% input$unique.products & get(AgeGroup) %in% input$e_age2 & Gender %in% input$e_gender2 & IncomeGroup %in% input$e_incomegroup2 & Region %in% input$e_region2 & Persona %in% input$e_persona2]
+  
+  if(input$engagement_state == Satisfaction){
+    model.type = "linear"
+  }
+   if(input$engagement_state != Satisfaction){
+    model.type = "logistic"
+  
+   }
+  
+  regression = fit.model(dt = reg_model, outcome.name = input$engagement_state, input.names = input$engagement_state,
+                         model.type = model.type)
+  
+  datatable(data = regression)
+})
+
+
+
+
+
+
+
+```
+

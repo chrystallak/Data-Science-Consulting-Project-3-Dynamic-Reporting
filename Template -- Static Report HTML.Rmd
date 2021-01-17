@@ -1,0 +1,302 @@
+---
+title: "Individual Project 3"
+author: ""
+date: ""
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment="", warning = FALSE, message = FALSE, tidy.opts=list(width.cutoff=55), tidy = TRUE)
+
+library(data.table)
+library(DT)
+library(dplyr)
+library(Hmisc)
+library(rmarkdown)
+
+
+```
+
+```{r source}
+#source("constants.R")
+#source("functions.R")
+```
+
+```{r constants}
+
+
+
+```
+
+```{r functions}
+
+percentage.table =function(x, digits = 1){
+  tab = table(x)
+  percentage.tab = 100*tab/(sum(tab))
+  rounded.tab = round(x = percentage.tab, digits = digits)
+  return(rounded.tab)
+}
+
+
+```
+
+```{r read_data}
+
+dat = fread(input = "mobile phone survey data.csv")
+
+```
+
+
+# Report {.tabset}
+
+## Part 1:  Summary
+The dataset shows survey data regarding a telecommunications company's product offerings. In total, `r dat[length(unique(dat$id))]` have respondent to the survey for `r dat[length(unique(dat$Product))]` different products. Some demographic data regarding the respondents is collected such as age, income, region and gender while they have a number of options to choose that closer represent their 'persona', whether they are adventurers or techs. Each respondent is asked whether they are aware of each product and if they answer yes (value of 1 in awareness column) they are asked additional questions in the following categorires: brand perception (BP_ columns), Consideration (whether they consider using it), Consumption ( whether they have used it), Satisfaction and Advocacy. If respondents choose 'No' in the product awareness question then the remaining questions are skipped and missing values are inputted. For this reason, one respondent has multiple rows of data corresponding to each individual product response. 
+
+```{r part1}
+describe(dat)
+
+tot_respondents = length(unique(dat$id))
+tot_products = length(unique(dat$Product))
+
+```
+
+## Part 2:  Specific Questions {.tabset}
+
+
+### Q1: Respondent Variables {.tabset}
+
+#### Age Group
+
+```{r q1_age.group}
+breaks = c(18,35,50,65,400)
+labels = c("18-34", "35-49", "50-64", "65+")
+
+dat[, AgeGroups := cut(Age, breaks = breaks, right = FALSE, labels = labels),]
+
+percentage.table( dat[, .SD[1], by = id][,AgeGroups,])
+
+```
+
+#### Gender
+
+```{r q1_gender}
+
+percentage.table( dat[, .SD[1], by = id][,Gender,])
+
+
+```
+
+#### Income Group
+
+```{r q1_income.group}
+breaks1 = c(0,50000,75000,100000,150000,1000000000)
+labels1 = c("under 50K", "50K-75K", "75K-100K","100K-150K", "150K+")
+
+dat[, IncomeGroup := cut(Income, breaks = breaks1, right = FALSE, labels = labels1),]
+
+percentage.table( dat[, .SD[1], by = id][,IncomeGroup,])
+
+
+```
+
+#### Region
+ 
+```{r region}
+percentage.table( dat[, .SD[1], by = id][,Region,])
+
+```
+
+#### Persona
+
+```{r persona}
+percentage.table( dat[, .SD[1], by = id][,Persona,])
+
+```
+
+
+### Q2:  Segmented Outcomes {.tabset}
+
+#### Part A
+
+What are the top 5 products by Awareness rates in the Northeast?
+
+```{r q2_a}
+
+top5_awareness = dat[Region == "Northeast" , .(tot_awareness = 100*mean(Awareness)/max(Awareness, na.rm = TRUE)), by = Product]
+
+setorderv(x = top5_awareness, cols = c("tot_awareness"), order = c(-1)) 
+
+top5_awareness[1:5]
+
+```
+
+#### Part B
+
+What are the top 5 products by Advocacy rates among females who earn at least $100,000?
+
+```{r q2_b}
+
+top5_advocacy = dat[Gender == "Female" & Income >=100000 , .(tot_advocacy = 100*mean(Advocacy, na.rm = TRUE)/max(Advocacy, na.rm = TRUE)), by = Product]
+
+setorderv(x = top5_advocacy, cols = c("tot_advocacy"), order = c(-1)) 
+
+top5_advocacy[1:5]
+
+
+
+```
+
+
+
+
+
+### Q3:  Overall Brand Perceptions {.tabset}
+
+What are the top 5 brands by the overall average perception?
+
+
+```{r q3}
+
+colstoavg <- names(dat)[9:20]
+
+
+avg_productBP = dat[,lapply(.SD,mean,na.rm=TRUE),by=Product, .SDcols=colstoavg][, 10:13 := lapply(.SD, function(x) 10-x), .SDcols = 10:13][, .(OverallAveragePerception = rowMeans(.SD)), by = Product]
+
+colstoinvert = names(avg_productBP)[10:13]
+
+setorderv(x = avg_productBP , cols = c("OverallAveragePerception"), order = c(-1)) 
+
+avg_productBP[1:5]
+
+```
+
+
+### Q4: Gaps in Outcomes {.tabset}
+
+
+#### Part A
+
+Which 5 products have the largest gap between the rate of consumption and the rate of awareness?
+
+```{r q4_a}
+
+gapsoutcomes_binary = dat[, .('Awareness_pct' = 100*mean(Awareness == 1, na.rm = TRUE), 'Consumption_pct' = 100*mean(Consumption == 1, na.rm = TRUE), 
+                              'Advocacy_pct' = 100*mean(Advocacy == 1, na.rm = TRUE), 'Consideration_pct' = 100*mean(Consideration == 1, na.rm = TRUE),
+                              'Satisfaction_pct' = (100*mean(Satisfaction, na.rm = TRUE))/10),by = Product]
+
+gapsoutcomes_avg = dat[,lapply(.SD,mean,na.rm=TRUE ),by=Product, .SDcols=colstoavg][, 2:13 := lapply(.SD, function(x)10*x), .SDcols = 2:13]
+
+gapsoutcomes = cbind(gapsoutcomes_avg, gapsoutcomes_binary)
+
+
+gapsoutcomes[, 'DifferenceCA' := Consumption_pct - Awareness_pct, Product]
+
+
+sorted_gapsA = gapsoutcomes[sort(abs(gapsoutcomes$DifferenceCA),decreasing=T,index.return=T)[[2]],][1:5]
+
+
+barplot(sorted_gapsA$DifferenceCA, space = 0.2, col=rainbow(20), names.arg = sorted_gapsA$Product, las=2, cex.names=.7, ylab = "Percentage", main = "Rate of Consumption - Rate of Awareness")
+
+```
+
+#### Part B
+
+Which 5 products have the largest gap between the rate of Awareness and the average Satisfaction?
+
+```{r q4_b}
+gapsoutcomes[, 'DifferenceAS' := Awareness_pct - Satisfaction_pct, Product]
+
+sorted_gapsB = gapsoutcomes[sort(abs(gapsoutcomes$DifferenceAS),decreasing=T,index.return=T)[[2]],][1:5]
+
+
+barplot(sorted_gapsB$DifferenceAS, space = 0.2, col=rainbow(20), names.arg = sorted_gapsB$Product, las=2, cex.names=.7, ylab = "Percentage", main = "Rate of Awareness - Rate of Satisfaction")
+
+
+```
+
+
+### Q5: Aggregated Engagement {.tabset}
+
+#### Part A
+
+How much impact does respondent's overall trends in awareness have for that person's awareness with Buzzdial phones?
+
+```{r q5_a}
+help(glm)
+
+agg_engagement = dat[Product != "Buzzdial", .("AggregatedEngagement" = mean(Awareness, na.rm = TRUE)), by = id]
+
+merged_engagement = cbind(dat, agg_engagement)
+
+logit_regression = merged_engagement[Product == "Buzzdial", .SD ,]
+
+Outcome = merged_engagement[Product == "Buzzdial", Awareness,]
+
+mylogit = glm(Outcome ~ AgeGroups + Gender + IncomeGroup + Region + Persona + AggregatedEngagement, data = logit_regression, na.action = na.omit, family = binomial)
+
+coefficients_awarenes = exp(cbind(OR = coef(mylogit), confint(mylogit)))
+
+
+as.table(cbind(coefficients_awarenes, pvalue = coef(summary(mylogit))[,4]))
+
+
+```
+
+#### Part B
+
+How much impact does respondent's overall trends in satisfaction have for that person's satisfaction with Buzzdial phones?
+
+```{r q5_b}
+
+agg_engagement_satisfaction = dat[Product != "Buzzdial", .("AggregatedEngagement.Satisfaction" = mean(Satisfaction, na.rm = TRUE)), by = id]
+
+merged_engagementS = cbind(dat, agg_engagement_satisfaction)
+
+linear_regression = merged_engagementS[Product == "Buzzdial", .SD ,]
+
+OutcomeS = merged_engagement[Product == "Buzzdial", Satisfaction,]
+
+mylinear = lm(OutcomeS ~ AgeGroups + Gender + IncomeGroup + Region + Persona + AggregatedEngagement.Satisfaction, data = linear_regression, na.action = na.omit)
+
+cbind(coefficients = coef(mylinear), confint(mylinear), pvalue = coef(summary(mylinear))[,4])
+
+
+```
+
+
+
+## Part 3:  Reporting Engine {.tabset}
+
+This section of the work is available in the file ...
+
+## Part 4:  Opportunities {.tabset}
+
+### Q1
+
+How would you build on the reporting capabilities that you have created?  What would you design next?
+
+I would design a small report for the client excplaining the functionalities of each tab and offer examples on how they can use the data retrieved by the graphical visualizations and statistical models. Consider this as a "how to" guide to get the client started with the program. Then, according to their feedback and needs, I will continue to build on this report to include further factros and analyses they would like to access.
+
+### Q2
+
+What are some opportunities to learn valuable information and inform strategic decisions?  List a number of questions that you might explore.
+
+1. Which product has the highest potential to experience awareness and then, revenue growth?
+2. Which demographic group generates the highest awareness? 
+3. Which brand perception is more valuable to customers, hence, should be given a greater weight?
+4. What synergies exist between products adn customer demographics that can be utilized to grow awareness for other products?
+
+### Q3
+
+How would you approach other decisionmakers within the client's organization to assess their priorities and help them better utilize the available information?
+
+First of all, I would call ahead and arrange an in-person or virtual meeting at a time of their convenience to engage in conversation and extract valuable information to assess their priorities. Within the conversation, I will ask how their decision process takes place and what factors they consider when creating a new strategy. Most importantly, I will ask about their ultimate goal when formulating each strategy and input my own knowledge and give them an additional perspective as to what would be useful for them min the next phase of the project. Based on my prior experience and my understanding of analytics' capabilties, I will propose them some potential isnights we could uncover and ask whether they would be interested. 
+
+Also, I believe showing them concrete examples of past projects I worked for in similar industries and areas, I will build my credibility while letting them comprehend the level of information they can reach to inform their strategic decisions. 
+
+
+
+### Q4
+
+**Video Submission:**  Make a 2-minute pitch to the client with a proposal for the next phase of work.  Include in your request a budget, a time frame, and staffing levels.  Explain why this proposal would be valuable for the client and worth the investment in your consulting services.  Please submit this answer as a short video recording. You may use any video recording program you feel comfortable with. The only requirements are that you are visible and audible in the video.  You may also submit a file of slides if that is part of your pitch.
